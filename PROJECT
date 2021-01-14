@@ -1,0 +1,3 @@
+version: "2"
+domain: argoproj.io
+repo: capi-argocd-sync
