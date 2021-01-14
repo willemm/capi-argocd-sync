@@ -106,7 +106,7 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	if _, found := capiSecret.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"]; !found {
 		return ctrl.Result{}, nil
 	}
-	log.Info("Processing secret", "secret", capiSecret)
+	log.Info("Processing secret", "secret", req.NamespacedName)
 
 	// Get kubeconfig from secret
 	var kubeConfig KubeConfig
@@ -147,11 +147,11 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			},
 		}
 		if err := ctrl.SetControllerReference(&capiSecret, argoSecret, r.Scheme); err != nil {
-			log.Error(err, "Failed to set controller reference for secret", "secret", argoSecret)
+			log.Error(err, "Failed to set controller reference for secret", "secret", argoSecretName)
 			return ctrl.Result{}, err
 		}
 		if err := r.Create(ctx, argoSecret); err != nil {
-			log.Error(err, "Failed to create argocd secret", "secret", argoSecret)
+			log.Error(err, "Failed to create argocd secret", "secret", argoSecretName)
 			return ctrl.Result{}, err
 		}
 		log.Info("Created new secret", "secret", argoSecret)
@@ -172,11 +172,11 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		}
 		if changed {
 			if err := r.Update(ctx, &argoSecret); err != nil {
-				log.Error(err, "Failed to update secret", "secret", argoSecret)
+				log.Error(err, "Failed to update secret", "secret", argoSecretName)
 				return ctrl.Result{}, err
 			}
 		}
-		log.Info("Updated secret", "secret", argoSecret)
+		log.Info("Updated secret", "secret", argoSecretName)
 	}
 
 	return ctrl.Result{}, nil
