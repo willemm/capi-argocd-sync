@@ -138,7 +138,7 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      argoSecretName.Name,
 				Namespace: argoSecretName.Namespace,
-                                Labels:    map[string]string{ "argocd.argoproj.io/secret-type": "cluster" },
+				Labels:    map[string]string{"argocd.argoproj.io/secret-type": "cluster"},
 			},
 			Data: map[string][]byte{
 				"name":   clusterName,
