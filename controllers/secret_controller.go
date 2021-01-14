@@ -16,7 +16,10 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"os"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -25,9 +28,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
-	"gopkg.in/yaml.v2"
 	"encoding/json"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -47,7 +52,7 @@ type KubeClusterInfo struct {
 }
 
 type KubeCluster struct {
-	Name string             `yaml:"name"`
+	Name    string          `yaml:"name"`
 	Cluster KubeClusterInfo `yaml:"cluster"`
 }
 
@@ -63,7 +68,7 @@ type KubeUser struct {
 
 type KubeConfig struct {
 	Clusters []KubeCluster `yaml:"clusters"`
-	Users []KubeUser       `yaml:"users"`
+	Users    []KubeUser    `yaml:"users"`
 }
 
 func (kc *KubeConfig) Parse(data []byte) error {
@@ -80,15 +85,12 @@ type ArgoConfig struct {
 	TlsClientConfig ArgoTls `json:"tlsClientConfig"`
 }
 
-func createArgoSecret(secretName, name, server, config string) corev1.Secret {
-}
-
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets/status,verbs=get;update;patch
 
 func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx = context.Background()
-	log = r.Log.WithValues("secret", req.NamespacedName)
+	ctx := context.Background()
+	log := r.Log.WithValues("secret", req.NamespacedName)
 
 	// We only care about secrets named <cluster>-kubeconfig
 	if !strings.HasSuffix(req.NamespacedName.Name, "-kubeconfig") {
@@ -97,34 +99,34 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	var capiSecret corev1.Secret
 	if err := r.Get(ctx, req.NamespacedName, &capiSecret); err != nil {
-		log.Error("Failed to fetch secret %s", req.NamespacedName)
-		return ctrl.Result{}, client.ignoreNotFound(err)
+		log.Error(err, "Failed to fetch secret", req.NamespacedName)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	// Check if capiSecret has label cluster.x-k8s.io/cluster-name
-	if !metav1.HasLabel(capiSecret.ObjectMeta, "cluster.x-k8s.io/cluster-name") {
+	if _, found := capiSecret.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"]; !found {
 		return ctrl.Result{}, nil
 	}
+	log.Info("Processing secret", "secret", capiSecret)
 
 	// Get kubeconfig from secret
 	var kubeConfig KubeConfig
-	if err := kubeConfig.Parse(capiSecret.Data['value']); err != nil {
+	if err := kubeConfig.Parse(capiSecret.Data["value"]); err != nil {
 		log.Error(err, "Failed to parse kubeconfig on")
 		// If parsing failed, it's probably fatal so don't retry
 		return ctrl.Result{}, nil
 	}
-	clusterName   := kubeConfig.Clusters[0].Name
-	clusterServer := kubeConfig.Clusters[0].Cluster.Server
-	caData     := kubeConfig.Clusters[0].Cluster.CaData
-	certData   := kubeConfig.Users[0].User.CertData
-	keyData    := kubeConfig.Users[0].User.KeyData
-	if argoConfigBytes, err := json.Marshal(ArgoConfig{TlsConfig:
-				ArgoTls{CaData:caData, CertData: certData, KeyData:keyData}
-		}); err != nil {
+	clusterName := []byte(kubeConfig.Clusters[0].Name)
+	clusterServer := []byte(kubeConfig.Clusters[0].Cluster.Server)
+	caData := kubeConfig.Clusters[0].Cluster.CaData
+	certData := kubeConfig.Users[0].User.CertData
+	keyData := kubeConfig.Users[0].User.KeyData
+	argoConfigBytes, err := json.Marshal(ArgoConfig{TlsClientConfig: ArgoTls{CaData: caData, CertData: certData, KeyData: keyData}})
+	if err != nil {
 		log.Error(err, "Failed to create argocd secret config")
 		return ctrl.Result{}, err
 	}
-	clusterConfig := string(argoConfigBytes)
-	argoSecretName = types.NamespacedName{Namespace=ArgoCdNamespace, Name="cluster-"+capiSecret.ObjectMeta.Name}
+	clusterConfig := argoConfigBytes
+	argoSecretName := types.NamespacedName{Namespace: ArgoCdNamespace, Name: "cluster-" + capiSecret.ObjectMeta.Name}
 	var argoSecret corev1.Secret
 	if err := r.Get(ctx, argoSecretName, &argoSecret); err != nil {
 		if !errors.IsNotFound(err) {
@@ -132,18 +134,18 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			return ctrl.Result{}, err
 		}
 		// Create new object
-		argoSecret = &corev1.Secret{
+		argoSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: argoSecretName,
-				Namespace: ArgoCdNamespace
+				Name:      argoSecretName.Name,
+				Namespace: argoSecretName.Namespace,
 			},
-			Data: map[string]string {
-				"name": clusterName,
+			Data: map[string][]byte{
+				"name":   clusterName,
 				"server": clusterServer,
-				"config": clusterConfig
-			}
+				"config": clusterConfig,
+			},
 		}
-		if err := ctrl.SetControllerReference(capiSecret, argoSecret, r.Scheme); err != nil {
+		if err := ctrl.SetControllerReference(&capiSecret, argoSecret, r.Scheme); err != nil {
 			log.Error(err, "Failed to set controller reference for secret", "secret", argoSecret)
 			return ctrl.Result{}, err
 		}
@@ -155,20 +157,20 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	} else {
 		// Check differences and update
 		changed := false
-		if argoSecret.Data["name"] != clusterName {
+		if bytes.Compare(argoSecret.Data["name"], clusterName) != 0 {
 			argoSecret.Data["name"] = clusterName
 			changed = true
 		}
-		if argoSecret.Data["server"] != clusterServer {
+		if bytes.Compare(argoSecret.Data["server"], clusterServer) != 0 {
 			argoSecret.Data["server"] = clusterServer
 			changed = true
 		}
-		if argoSecret.Data["config"] != clusterConfig {
+		if bytes.Compare(argoSecret.Data["config"], clusterConfig) != 0 {
 			argoSecret.Data["config"] = clusterConfig
 			changed = true
 		}
 		if changed {
-			if err := r.Update(ctx, argoSecret); err != nil {
+			if err := r.Update(ctx, &argoSecret); err != nil {
 				log.Error(err, "Failed to update secret", "secret", argoSecret)
 				return ctrl.Result{}, err
 			}
@@ -180,7 +182,7 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 }
 
 func (r *SecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	ArgoCdNamespace = os.GetEnv("ARGOCD_NAMESPACE")
+	ArgoCdNamespace = os.Getenv("ARGOCD_NAMESPACE")
 	if ArgoCdNamespace == "" {
 		ArgoCdNamespace = "argocd"
 	}
