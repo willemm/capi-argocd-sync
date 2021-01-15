@@ -99,7 +99,7 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	var capiSecret corev1.Secret
 	if err := r.Get(ctx, req.NamespacedName, &capiSecret); err != nil {
-		log.Error(err, "Failed to fetch secret", req.NamespacedName)
+		log.Error(err, "Failed to fetch secret", "secret", req.NamespacedName)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	// Check if capiSecret has label cluster.x-k8s.io/cluster-name
@@ -111,7 +111,7 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// Get kubeconfig from secret
 	var kubeConfig KubeConfig
 	if err := kubeConfig.Parse(capiSecret.Data["value"]); err != nil {
-		log.Error(err, "Failed to parse kubeconfig on")
+		log.Error(err, "Failed to parse kubeconfig on", "secret", req.NamespacedName)
 		// If parsing failed, it's probably fatal so don't retry
 		return ctrl.Result{}, nil
 	}
@@ -130,7 +130,7 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	var argoSecret corev1.Secret
 	if err := r.Get(ctx, argoSecretName, &argoSecret); err != nil {
 		if !errors.IsNotFound(err) {
-			log.Error(err, "Failed to fetch secret", argoSecretName)
+			log.Error(err, "Failed to fetch secret", "secret", argoSecretName)
 			return ctrl.Result{}, err
 		}
 		// Create new object
