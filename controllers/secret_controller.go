@@ -108,7 +108,7 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// Get kubeconfig from secret
 	var kubeConfig KubeConfig
 	if err := kubeConfig.Parse(capiSecret.Data["value"]); err != nil || kubeConfig.ApiVersion != "v1" || kubeConfig.Kind != "Config" {
-		log.Error(err, "Failed to parse kubeconfig on", "secret", req.NamespacedName)
+		log.Error(err, "Failed to parse kubeconfig on", "secret", req.NamespacedName, "config", kubeConfig)
 		// If parsing failed, it's probably fatal so don't retry
 		return ctrl.Result{}, nil
 	}
