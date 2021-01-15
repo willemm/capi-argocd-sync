@@ -67,8 +67,10 @@ type KubeUser struct {
 }
 
 type KubeConfig struct {
-	Clusters []KubeCluster `yaml:"clusters"`
-	Users    []KubeUser    `yaml:"users"`
+	ApiVersion string        `yaml:"apiVersion"`
+	Kind       string        `yaml:"kind"`
+	Clusters   []KubeCluster `yaml:"clusters"`
+	Users      []KubeUser    `yaml:"users"`
 }
 
 func (kc *KubeConfig) Parse(data []byte) error {
@@ -99,18 +101,13 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	var capiSecret corev1.Secret
 	if err := r.Get(ctx, req.NamespacedName, &capiSecret); err != nil {
-		log.Error(err, "Failed to fetch secret", "secret", req.NamespacedName)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	// Check if capiSecret has label cluster.x-k8s.io/cluster-name
-	if _, found := capiSecret.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"]; !found {
-		return ctrl.Result{}, nil
-	}
-	log.Info("Processing secret", "secret", req.NamespacedName)
+	log.Info("Checking secret", "secret", req.NamespacedName)
 
 	// Get kubeconfig from secret
 	var kubeConfig KubeConfig
-	if err := kubeConfig.Parse(capiSecret.Data["value"]); err != nil {
+	if err := kubeConfig.Parse(capiSecret.Data["value"]); err != nil || kubeConfig.ApiVersion != "v1" || kubeConfig.Kind != "Config" {
 		log.Error(err, "Failed to parse kubeconfig on", "secret", req.NamespacedName)
 		// If parsing failed, it's probably fatal so don't retry
 		return ctrl.Result{}, nil
