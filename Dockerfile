@@ -1,5 +1,8 @@
 # Build the manager binary
-FROM golang:1.12.5 as builder
+FROM golang:1.17 as builder
+
+RUN curl http://pr-art.europe.stater.corp/artifactory/auto-local/certs/pr-root.cer | sed -e "s/\r//g" > /usr/local/share/ca-certificates/pr-root.crt \
+ && update-ca-certificates
 
 WORKDIR /workspace
 # Copy the Go Modules manifests

@@ -30,6 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	"encoding/json"
 	"gopkg.in/yaml.v2"
@@ -90,8 +91,7 @@ type ArgoConfig struct {
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets/status,verbs=get;update;patch
 
-func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx := context.Background()
+func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("secret", req.NamespacedName)
 
 	// We only care about secrets named <cluster>-kubeconfig
@@ -103,12 +103,16 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	if err := r.Get(ctx, req.NamespacedName, &capiSecret); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	// We also only care about secrets with the correct type (cluster.x-k8s.io/secret)
+	if capiSecret.Type != clusterv1.ClusterSecretType {
+		return ctrl.Result{}, nil
+	}
 	log.Info("Checking secret", "secret", req.NamespacedName)
 
 	// Get kubeconfig from secret
 	var kubeConfig KubeConfig
 	if err := kubeConfig.Parse(capiSecret.Data["value"]); err != nil || kubeConfig.ApiVersion != "v1" || kubeConfig.Kind != "Config" {
-		log.Error(err, "Failed to parse kubeconfig on", "secret", req.NamespacedName, "config", kubeConfig)
+		log.Error(err, "Failed to parse kubeconfig on", "secret", req.NamespacedName, "config", kubeConfig, "data", capiSecret.Data["value"])
 		// If parsing failed, it's probably fatal so don't retry
 		return ctrl.Result{}, nil
 	}
@@ -143,10 +147,13 @@ func (r *SecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 				"config": clusterConfig,
 			},
 		}
+		/* TODO: Add finalizer?  Definitely add delete reconciliation
+		// Cross-namespace owner references are not allowed
 		if err := ctrl.SetControllerReference(&capiSecret, argoSecret, r.Scheme); err != nil {
 			log.Error(err, "Failed to set controller reference for secret", "secret", argoSecretName)
 			return ctrl.Result{}, err
 		}
+		*/
 		if err := r.Create(ctx, argoSecret); err != nil {
 			log.Error(err, "Failed to create argocd secret", "secret", argoSecretName)
 			return ctrl.Result{}, err
